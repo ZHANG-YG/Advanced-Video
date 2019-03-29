@@ -28,9 +28,28 @@ class MediaCenter: NSObject {
                 orientationMode: .adaptative
             )
         )
+        agoraKit.setLogFile(MediaCenter.document() + "/agoralog.txt")
+        agoraKit.setLogFilter(95585)
         print("version: \(AgoraRtcEngineKit.getSdkVersion())")
         return agoraKit
     }()
+    
+    static func document() -> String {
+        #if os(iOS)
+        let cacheDirectory = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first!
+        #else
+        let cacheDirectory = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true).first!
+        #endif
+        let path = cacheDirectory + "/AgoraLogs"
+        
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+        if !exists || !isDirectory.boolValue {
+            try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true, attributes: nil)
+        }
+        
+        return path
+    }
     
     var channel: Channel?
     var renderView: UIView?
@@ -46,6 +65,12 @@ class MediaCenter: NSObject {
         
         self.channel = channel
         self.renderView = renderView
+        
+        let canvas = AgoraRtcVideoCanvas()
+        canvas.uid = channel.hostUid
+        canvas.view = renderView
+        canvas.renderMode = .hidden
+        agoraKit.setupRemoteVideo(canvas)
     }
     
     func leaveChannel(_ channel: Channel) {
@@ -67,22 +92,14 @@ extension MediaCenter: AgoraRtcEngineDelegate {
     }
     
     func rtcEngine(_ engine: AgoraRtcEngineKit, didJoinedOfUid uid: UInt, elapsed: Int) {
-        guard uid == channel?.hostUid, let renderView = renderView else {
-            return
-        }
-        
-        print("renderView size: \(renderView.frame.size)")
-        let canvas = AgoraRtcVideoCanvas()
-        canvas.uid = uid
-        canvas.view = renderView
-        canvas.renderMode = .hidden
-        agoraKit.setupRemoteVideo(canvas)
-    }
-    
-    func rtcEngine(_ engine: AgoraRtcEngineKit, firstRemoteVideoDecodedOfUid uid: UInt, size: CGSize, elapsed: Int) {
         guard let channel = channel, uid == channel.hostUid else {
             return
         }
         delegate?.mediaCenter(self, didRemoteVideoDecoded: channel.channelName)
+        print("didJoinedOfUid: \(uid)")
+    }
+    
+    func rtcEngine(_ engine: AgoraRtcEngineKit, firstRemoteVideoDecodedOfUid uid: UInt, size: CGSize, elapsed: Int) {
+        print("firstRemoteVideoDecodedOfUid: \(uid)")
     }
 }
