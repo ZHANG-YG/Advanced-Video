@@ -7,5 +7,5 @@
 //
 
 struct KeyCenter {
-    static let AppId: String = <#Your App Id#>
+    static let AppId: String = ""
 }

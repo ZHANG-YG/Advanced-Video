@@ -21,6 +21,8 @@ static int mRecordingAppBufferBytes = 0;
 static int mRecordingMicBufferBytes = 0;
 static CriticalSectionWrapper *CritSect = CriticalSectionWrapper::CreateCriticalSection();
 
+static AudioConverterRef mAudioConverterRef;
+
 void pushAudioAppFrame(unsigned char *inAudioFrame, int frameSize)
 {
     CriticalSectionScoped lock(CritSect);
@@ -148,45 +150,96 @@ static AgoraAudioFrameObserver s_audioFrameObserver;
 
 + (void)pushAudioAppBuffer:(CMSampleBufferRef)sampleBuffer
 {
-    AudioBufferList inAudioBufferList;
-    CMBlockBufferRef blockBuffer = nil;
-    OSStatus status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, NULL, &inAudioBufferList, sizeof(inAudioBufferList), NULL, NULL, 0, &blockBuffer);
-    if (status != noErr) {
-        return;
-    }
-    
-    AudioBuffer buffer = inAudioBufferList.mBuffers[0];
-    uint8_t* p = (uint8_t*)buffer.mData;
-    
-    for (int i = 0; i < buffer.mDataByteSize; i += 2) {
-        uint8_t tmp;
-        tmp = p[i];
-        p[i] = p[i + 1];
-        p[i + 1] = tmp;
-    }
-    pushAudioAppFrame(p, buffer.mDataByteSize);
-    
-    if (blockBuffer) {
-        CFRelease(blockBuffer);
-    }
+//    AudioBufferList inAudioBufferList = [self resamplingAudioBuffer:sampleBuffer];
+//
+//    AudioBuffer buffer = inAudioBufferList.mBuffers[0];
+//    uint8_t* p = (uint8_t*)buffer.mData;
+//    pushAudioAppFrame(p, buffer.mDataByteSize);
 }
     
 + (void)pushAudioMicBuffer:(CMSampleBufferRef)sampleBuffer
 {
-    AudioBufferList inAaudioBufferList;
-    CMBlockBufferRef blockBuffer = nil;
-    OSStatus status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, NULL, &inAaudioBufferList, sizeof(inAaudioBufferList), NULL, NULL, 0, &blockBuffer);
-    if (status != noErr) {
+//    AudioBufferList inAudioBufferList =
+    [self resamplingAudioBuffer:sampleBuffer];
+    
+//    AudioBuffer buffer = inAudioBufferList.mBuffers[0];
+//    uint8_t* p = (uint8_t*)buffer.mData;
+    
+//    pushAudioMicFrame(p, buffer.mDataByteSize);
+}
+
++ (void)creatConverter {
+    if (mAudioConverterRef) {
         return;
     }
-    
-    AudioBuffer buffer = inAaudioBufferList.mBuffers[0];
-    uint8_t* p = (uint8_t*)buffer.mData;
-    
-    pushAudioMicFrame(p, buffer.mDataByteSize);
-    
-    if (blockBuffer) {
-        CFRelease(blockBuffer);
-    }
 }
+
++ (AudioBufferList)resamplingAudioBuffer:(CMSampleBufferRef)sampleBuffer {
+    AudioStreamBasicDescription inAudioStreamBasicDescription = *CMAudioFormatDescriptionGetStreamBasicDescription((CMAudioFormatDescriptionRef)CMSampleBufferGetFormatDescription(sampleBuffer));
+    
+    AudioStreamBasicDescription outAudioStreamBasicDescription = {0};
+    outAudioStreamBasicDescription.mSampleRate = 44100;
+    outAudioStreamBasicDescription.mFormatID = kAudioFormatLinearPCM;
+    outAudioStreamBasicDescription.mFormatFlags = kAudioFormatFlagIsPacked | kAudioFormatFlagIsSignedInteger;
+    outAudioStreamBasicDescription.mBytesPerPacket = 2;
+    outAudioStreamBasicDescription.mFramesPerPacket = 1;
+    outAudioStreamBasicDescription.mBytesPerFrame = 2;
+    outAudioStreamBasicDescription.mChannelsPerFrame = 1;
+    outAudioStreamBasicDescription.mBitsPerChannel = 16;
+    outAudioStreamBasicDescription.mReserved = 0;
+    
+    //
+    AudioConverterRef audioConverter;
+    memset(&audioConverter, 0, sizeof(audioConverter));
+    NSAssert(AudioConverterNew(&inAudioStreamBasicDescription, &outAudioStreamBasicDescription, &audioConverter) == 0, nil);
+    
+    //
+    AudioBufferList inAudioBufferList;
+    CMBlockBufferRef blockBuffer;
+    CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, NULL, &inAudioBufferList, sizeof(inAudioBufferList), NULL, NULL, 0, &blockBuffer);
+    
+    uint32_t bufferSize = inAudioBufferList.mBuffers[0].mDataByteSize;
+    NSLog(@"%u", bufferSize);
+    
+    uint8_t *buffer = (uint8_t *)malloc(bufferSize);
+    memset(buffer, 0, bufferSize);
+    
+    AudioBufferList outAudioBufferList;
+    outAudioBufferList.mNumberBuffers = 1;
+    outAudioBufferList.mBuffers[0].mNumberChannels = 1;
+    outAudioBufferList.mBuffers[0].mDataByteSize = bufferSize;
+    outAudioBufferList.mBuffers[0].mData = buffer;
+    
+    UInt32 len = outAudioStreamBasicDescription.mBytesPerPacket / inAudioStreamBasicDescription.mBytesPerPacket;
+    UInt32 bytes = 0;
+    NSLog(@"len: %u", len);
+    
+    AudioConverterConvertBuffer(audioConverter,
+                                len,
+                                &inAudioBufferList,
+                                &bytes,
+                                &outAudioBufferList);
+    
+    AudioBuffer buffer2 = outAudioBufferList.mBuffers[0];
+    uint8_t* p = (uint8_t*)buffer2.mData;
+    
+    pushAudioMicFrame(p, buffer2.mDataByteSize);
+    
+    
+    free(buffer);
+    CFRelease(blockBuffer);
+//    AudioConverterDispose(audioConverter);
+    
+    return outAudioBufferList;
+}
+
+//OSStatus inInputDataProc(AudioConverterRef inAudioConverter, UInt32 *ioNumberDataPackets, AudioBufferList *ioData, AudioStreamPacketDescription **outDataPacketDescription, void *inUserData)
+//{
+//    AudioBufferList audioBufferList = *(AudioBufferList *)inUserData;
+//
+//    ioData->mBuffers[0].mData = audioBufferList.mBuffers[0].mData;
+//    ioData->mBuffers[0].mDataByteSize = audioBufferList.mBuffers[0].mDataByteSize;
+//
+//    return  noErr;
+//}
 @end

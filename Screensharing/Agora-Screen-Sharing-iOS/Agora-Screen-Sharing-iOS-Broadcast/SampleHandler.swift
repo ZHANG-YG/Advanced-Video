@@ -38,12 +38,11 @@ class SampleHandler: RPBroadcastSampleHandler {
             switch sampleBufferType {
             case RPSampleBufferType.video:
                 AgoraUploader.sendVideoBuffer(sampleBuffer)
-                break
             case RPSampleBufferType.audioApp:
                 AgoraUploader.sendAudioAppBuffer(sampleBuffer)
-                break
             case RPSampleBufferType.audioMic:
                 AgoraUploader.sendAudioMicBuffer(sampleBuffer)
+            @unknown default:
                 break
             }
         }
